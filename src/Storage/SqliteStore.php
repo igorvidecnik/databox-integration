@@ -13,7 +13,7 @@ final class SqliteStore
     {
         $dir = dirname($dbPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0777, true);
+            mkdir($dir, 0775, true);
         }
 
         $this->pdo = new PDO('sqlite:' . $dbPath, null, null, [

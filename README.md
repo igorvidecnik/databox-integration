@@ -1,0 +1,147 @@
+# Databox Integration (Strava + Open-Meteo)
+
+**Production-grade PHP ingestion pipeline for personal performance & weather analytics**
+
+This service:
+- fetches daily data from **Strava API** and **Open-Meteo API**,
+- aggregates it into **daily datasets**,
+- pushes the data into **Databox Ingestion API**,
+- enables visualization via **Databox Metrics & Dashboards**.
+
+---
+
+## Tech Stack
+
+- PHP 8.3 (CLI)
+- SQLite (runtime state + OAuth tokens)
+- Guzzle (HTTP client)
+- Monolog (JSONL logs: `logs/app.jsonl`)
+- Dotenv (`.env`)
+- Entry point: `php bin/ingest`
+
+---
+
+## Project Structure
+
+```
+databox-integration/
+├─ bin/
+│  ├─ ingest
+│  └─ setup_databox.php
+├─ public/
+│  └─ index.php
+├─ src/
+│  ├─ OAuth/StravaOAuth.php
+│  ├─ Storage/SqliteStore.php
+│  ├─ Sources/StravaSource.php
+│  ├─ Sources/OpenMeteoSource.php
+│  ├─ Pipeline/IngestionRunner.php
+│  ├─ Databox/DataboxClient.php
+│  └─ Logging/LoggerFactory.php
+├─ data/app.db
+├─ logs/app.jsonl
+├─ docs/
+│  ├─ schema.md
+│  └─ mapping.md
+└─ .env
+```
+
+---
+
+## Setup
+
+### 1) Requirements
+
+- PHP 8.3
+- Composer
+
+### 2) Install
+
+```bash
+composer install
+cp .env.example .env
+```
+
+### 3) Strava OAuth
+
+Configure your Strava application with the redirect URI defined in `STRAVA_REDIRECT_URI`.
+
+For local OAuth callback:
+
+```bash
+php -S localhost:8000 -t public
+```
+
+Complete the OAuth flow in the browser.  
+Tokens are securely stored in SQLite (`oauth_tokens` table).
+
+### 4) Databox
+
+Create a **Push Token** in Databox and set it in `.env`:
+
+```
+DATABOX_PUSH_TOKEN=...
+```
+
+Dataset structure is documented in `docs/schema.md`.
+
+---
+
+## Running Ingestion
+
+```bash
+php bin/ingest
+```
+
+### Dry-Run Mode
+
+If Databox is not configured or:
+
+```
+INGEST_DRY_RUN=1
+```
+
+the pipeline executes fully **without sending data** to Databox.
+
+---
+
+## Architecture Notes
+
+- **Dataset** — raw storage layer
+- **Metric** — business logic layer
+- **Dashboard** — presentation layer
+- Rolling metrics (e.g. 7-day averages) are computed **inside the pipeline**
+- Ingestion is **idempotent** via persistent ingestion state
+- External API failures are handled via **graceful degradation**
+
+---
+
+## Logging & Security
+
+Structured JSON logs are written to:
+
+```
+logs/app.jsonl
+```
+
+Security features:
+
+- Sensitive values are automatically **redacted** from logs
+- OAuth tokens, secrets and authorization headers are masked
+- Payload logging uses **summary logging** (counts & date ranges only)
+- Optional `LOG_VERBOSE` flag enables deeper debug output
+
+---
+
+## Documentation
+
+| File | Description |
+|-----|------------|
+| `docs/schema.md` | Dataset fields, types & units |
+| `docs/mapping.md` | Mapping to Databox metrics & dashboards |
+
+---
+
+## License
+
+MIT
