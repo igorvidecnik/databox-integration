@@ -24,39 +24,14 @@ final class DataboxClient
     }
 
     /**
+     * Push records into Databox dataset in batches of 100 records/request (Databox limit).
+     *
      * @param array<int, array<string, mixed>> $records
-     * @return array{ingestionId?: string, status?: string, requestId?: string, message?: string}
-     */
-    /*
-    public function ingest(string $datasetId, array $records): array
-    {
-        $datasetId = trim($datasetId);
-        if ($datasetId === '') {
-            throw new \InvalidArgumentException('datasetId is missing/empty.');
-        }
-
-        // Databox expects: { "records": [ ... ] }
-        $payload = ['records' => array_values($records)];
-
-        try {
-            $res = $this->http->request('POST', $this->datasetDataUrl($datasetId), [
-                'headers' => [
-                    'Content-Type' => 'application/json',
-                    'x-api-key'     => $this->apiKey,
-                ],
-                'json' => $payload,
-            ]);
-        } catch (GuzzleException $e) {
-            throw new \RuntimeException('Databox ingest request failed: ' . $e->getMessage(), 0, $e);
-        }
-
-        return $this->decodeJson($res);
-    }
-    */
-
-    /**
-     * @param array<int, array<string, mixed>> $records
-     * @return array<string, mixed>
+     * @return array{
+     *   batches:int,
+     *   totalRecords:int,
+     *   results: array<int, array{batch:int, batchSize:int, response: array<string,mixed>}>
+     * }
      */
     public function ingest(string $datasetId, array $records): array
     {
@@ -115,13 +90,23 @@ final class DataboxClient
         ];
     }
 
-
     /**
      * Optional: check ingestion status.
+     *
      * @return array<string, mixed>
      */
     public function getIngestion(string $datasetId, string $ingestionId): array
     {
+        $datasetId = trim($datasetId);
+        if ($datasetId === '') {
+            throw new \InvalidArgumentException('datasetId is missing/empty.');
+        }
+
+        $ingestionId = trim($ingestionId);
+        if ($ingestionId === '') {
+            throw new \InvalidArgumentException('ingestionId is missing/empty.');
+        }
+
         try {
             $res = $this->http->request('GET', $this->datasetIngestionUrl($datasetId, $ingestionId), [
                 'headers' => [
@@ -137,14 +122,13 @@ final class DataboxClient
 
     private function datasetDataUrl(string $datasetId): string
     {
-        // API v1 endpoint:
-        // POST https://api.databox.com/v1/datasets/{datasetId}/data :contentReference[oaicite:1]{index=1}
+        // POST https://api.databox.com/v1/datasets/{datasetId}/data
         return 'https://api.databox.com/v1/datasets/' . rawurlencode($datasetId) . '/data';
     }
 
     private function datasetIngestionUrl(string $datasetId, string $ingestionId): string
     {
-        // GET https://api.databox.com/v1/datasets/{datasetId}/ingestions/{ingestionId} :contentReference[oaicite:2]{index=2}
+        // GET https://api.databox.com/v1/datasets/{datasetId}/ingestions/{ingestionId}
         return 'https://api.databox.com/v1/datasets/' . rawurlencode($datasetId)
             . '/ingestions/' . rawurlencode($ingestionId);
     }
@@ -158,10 +142,13 @@ final class DataboxClient
         $data = json_decode($body, true);
 
         if (!is_array($data)) {
-            throw new \RuntimeException('Databox response is not valid JSON. HTTP ' . $res->getStatusCode() . ' Body: ' . $body);
+            $snippet = mb_substr($body, 0, 2048);
+            throw new \RuntimeException(
+                'Databox response is not valid JSON. HTTP ' . $res->getStatusCode() . ' Body (first 2KB): ' . $snippet
+            );
         }
 
-        // Helpful fail-fast if Databox returns error payload with 200/4xx etc.
+        // Helpful fail-fast if Databox returns an error payload (sometimes even with 200)
         if (($data['status'] ?? null) === 'error') {
             throw new \RuntimeException('Databox API returned error: ' . ($data['message'] ?? 'unknown'));
         }

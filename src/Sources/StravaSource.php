@@ -26,6 +26,7 @@ final class StravaSource
         $this->logger = $logger;
         $this->env = $env;
 
+        // As requested
         $this->localTz = new \DateTimeZone('Europe/Ljubljana');
     }
 
@@ -35,12 +36,14 @@ final class StravaSource
      * Input:
      *  - $from, $to: "YYYY-MM-DD" (optional)
      *  - if omitted: last 30 days up to today
+     *
      * @return array<int, array{date:string, data:array<string, mixed>}>
      */
     public function fetchDaily(?string $from, ?string $to): array
     {
         [$fromDate, $toDate] = $this->normalizeDateRange($from, $to);
 
+        $verbose = filter_var($this->env['LOG_VERBOSE'] ?? '0', FILTER_VALIDATE_BOOL);
 
         $afterEpoch  = $fromDate->setTime(0, 0, 0)->getTimestamp();
         $beforeEpoch = $toDate->modify('+1 day')->setTime(0, 0, 0)->getTimestamp();
@@ -49,8 +52,23 @@ final class StravaSource
 
         $activities = $this->listActivities($accessToken, $afterEpoch, $beforeEpoch);
 
-        // DEBUG: pokaži prvo aktivnost
-        //$this->logger->info('Strava sample activity', $activities[0] ?? []);
+        // Optional: safe verbose debug
+        if ($verbose && isset($activities[0]) && is_array($activities[0])) {
+            $a = $activities[0];
+
+            $this->logger->info('Strava sample activity (sanitized)', [
+                'id' => $a['id'] ?? null,
+                'type' => $a['type'] ?? null,
+                'start_date' => $a['start_date'] ?? null,
+                'start_date_local' => $a['start_date_local'] ?? null,
+                'moving_time' => $a['moving_time'] ?? null,
+                'elapsed_time' => $a['elapsed_time'] ?? null,
+                'distance' => $a['distance'] ?? null,
+                'total_elevation_gain' => $a['total_elevation_gain'] ?? null,
+                'has_heartrate' => $a['has_heartrate'] ?? null,
+                'average_heartrate' => $a['average_heartrate'] ?? null,
+            ]);
+        }
 
         // Prepare day buckets with zeros (ensures continuity)
         $buckets = [];
@@ -61,9 +79,17 @@ final class StravaSource
 
         // Aggregate
         foreach ($activities as $a) {
+            if (!is_array($a)) {
+                continue;
+            }
 
             $startLocal = $a['start_date_local'] ?? null;
-            $dt = $this->parseStravaDateTime($startLocal ?: ($a['start_date'] ?? null));
+            $dt = $this->parseStravaDateTime(is_string($startLocal) ? $startLocal : null);
+
+            if ($startLocal === null) {
+                $startUtc = $a['start_date'] ?? null;
+                $dt = $this->parseStravaDateTime(is_string($startUtc) ? $startUtc : null);
+            }
 
             // Group by local date
             $localDate = $dt->setTimezone($this->localTz)->format('Y-m-d');
@@ -80,25 +106,25 @@ final class StravaSource
             $buckets[$localDate]['elapsed_time_s'] += (int)($a['elapsed_time'] ?? 0);
             $buckets[$localDate]['elevation_m'] += (float)($a['total_elevation_gain'] ?? 0.0);
 
-            // Optional calories (niso vedno prisotne)
+            // Calories (optional)
             $cal = null;
             if (isset($a['calories']) && is_numeric($a['calories'])) {
                 $cal = (float)$a['calories'];
             } else {
-                // ocena kalorij brez dodatnega API klica za detail
+                // estimate without extra detail call
                 $cal = $this->estimateCaloriesKcal($a);
             }
 
             $buckets[$localDate]['calories_kcal'] += (float)$cal;
 
             // Type counters
-            if ($type === 'Run') $buckets[$localDate]['run_count'] += 1;
-            if ($type === 'Ride') $buckets[$localDate]['ride_count'] += 1;
-            if ($type === 'Walk') $buckets[$localDate]['walk_count'] += 1;
-            if ($type === 'Hike') $buckets[$localDate]['hike_count'] += 1;
+            if ($type === 'Run')  { $buckets[$localDate]['run_count']  += 1; }
+            if ($type === 'Ride') { $buckets[$localDate]['ride_count'] += 1; }
+            if ($type === 'Walk') { $buckets[$localDate]['walk_count'] += 1; }
+            if ($type === 'Hike') { $buckets[$localDate]['hike_count'] += 1; }
         }
 
-        // Convert to Databox-friendly
+        // Convert to Databox-friendly records
         $records = [];
         foreach ($buckets as $date => $m) {
             $records[] = [
@@ -161,10 +187,12 @@ final class StravaSource
         if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $ymd)) {
             throw new \InvalidArgumentException("Invalid date '{$ymd}' (expected YYYY-MM-DD).");
         }
+
         $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $ymd, $this->localTz);
         if (!$dt) {
             throw new \InvalidArgumentException("Failed to parse date '{$ymd}'.");
         }
+
         return $dt->setTime(0, 0, 0);
     }
 
@@ -208,7 +236,7 @@ final class StravaSource
      */
     private function listActivities(string $accessToken, int $afterEpoch, int $beforeEpoch): array
     {
-        $perPage = 200; // max Strava supports
+        $perPage = 200; // Strava max
         $page = 1;
         $out = [];
 
@@ -232,7 +260,12 @@ final class StravaSource
                 throw new \RuntimeException('Strava activities request failed: ' . $e->getMessage(), 0, $e);
             }
 
-            $data = json_decode((string)$res->getBody(), true);
+            try {
+                $data = json_decode((string) $res->getBody(), true, 512, JSON_THROW_ON_ERROR);
+            } catch (\Throwable $e) {
+                throw new \RuntimeException('Strava activities response JSON decode failed: ' . $e->getMessage(), 0, $e);
+            }
+
             if (!is_array($data)) {
                 throw new \RuntimeException('Strava activities response is not JSON array.');
             }
@@ -243,7 +276,9 @@ final class StravaSource
             }
 
             foreach ($data as $item) {
-                if (is_array($item)) $out[] = $item;
+                if (is_array($item)) {
+                    $out[] = $item;
+                }
             }
 
             // Last page?
@@ -270,9 +305,9 @@ final class StravaSource
             throw new \RuntimeException('No Strava token found in DB (oauth_tokens). Connect Strava first.');
         }
 
-        $access = $row['access_token'];
-        $refresh = $row['refresh_token'];
-        $expiresAt = (int)$row['expires_at'];
+        $access = (string)($row['access_token'] ?? '');
+        $refresh = (string)($row['refresh_token'] ?? '');
+        $expiresAt = (int)($row['expires_at'] ?? 0);
 
         if ($access === '' || $refresh === '' || $expiresAt <= 0) {
             throw new \RuntimeException('Invalid Strava token row in DB.');
@@ -281,8 +316,12 @@ final class StravaSource
         // refresh 60s early
         if ($expiresAt <= time() + 60) {
             $this->logger->info('Refreshing Strava token', ['expires_at' => $expiresAt]);
+
             $new = $this->refreshToken($refresh);
+
+            // Persist newest token pair
             $this->store->saveOAuthToken('strava', $new['access_token'], $new['refresh_token'], $new['expires_at']);
+
             return $new['access_token'];
         }
 
@@ -314,7 +353,12 @@ final class StravaSource
             throw new \RuntimeException('Strava refresh request failed: ' . $e->getMessage(), 0, $e);
         }
 
-        $data = json_decode((string)$res->getBody(), true);
+        try {
+            $data = json_decode((string) $res->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('Strava refresh response JSON decode failed: ' . $e->getMessage(), 0, $e);
+        }
+
         if (!is_array($data)) {
             throw new \RuntimeException('Strava refresh response is not JSON.');
         }
@@ -333,16 +377,18 @@ final class StravaSource
     {
         $weightKg = (float)($this->env['USER_WEIGHT_KG'] ?? 0);
         if ($weightKg <= 0) {
-            return 0.0; // brez teže ne ugibamo :)
+            return 0.0; // without weight we don't guess
         }
 
         $type = (string)($a['type'] ?? '');
         $seconds = (int)($a['moving_time'] ?? 0);
-        if ($seconds <= 0) return 0.0;
+        if ($seconds <= 0) {
+            return 0.0;
+        }
 
         $hours = $seconds / 3600.0;
 
-        // HR-based estimate (boljša), če imamo average_heartrate
+        // HR-based estimate (better), if we have average_heartrate
         $hasHr = (bool)($a['has_heartrate'] ?? false);
         $avgHr = $a['average_heartrate'] ?? null;
 
@@ -350,35 +396,35 @@ final class StravaSource
             $hr = (float)$avgHr;
             $age = (int)($this->env['USER_AGE'] ?? 0);
 
-            // formula za približek: kcal/min ≈ (0.6309*HR + 0.1988*W + 0.2017*A - 55.0969)/4.184
+            // kcal/min approx
             $aYears = $age > 0 ? $age : 30;
-
             $kcalPerMin = (0.6309 * $hr + 0.1988 * $weightKg + 0.2017 * $aYears - 55.0969) / 4.184;
-            if ($kcalPerMin < 0) $kcalPerMin = 0;
+
+            if ($kcalPerMin < 0) {
+                $kcalPerMin = 0;
+            }
 
             $kcal = $kcalPerMin * ($seconds / 60.0);
 
+            // cap vs MET estimate to avoid absurd numbers
             $capMet = $this->defaultMET($type);
             $cap = $capMet * $weightKg * $hours;
-  
+
             return min($kcal, $cap * 1.6);
         }
 
         $met = $this->defaultMET($type);
-
         return $met * $weightKg * $hours;
     }
 
     private function defaultMET(string $type): float
     {
-        // Konzervativne MET vrednosti (približki)
         return match ($type) {
-            'Run'  => 9.8,  // zmeren tek
-            'Ride' => 7.5,  // zmerno kolesarjenje
-            'Hike' => 6.0,  // pohod
-            'Walk' => 3.5,  // hoja
-            default => 5.0, // splošno "active"
+            'Run'  => 9.8,
+            'Ride' => 7.5,
+            'Hike' => 6.0,
+            'Walk' => 3.5,
+            default => 5.0,
         };
     }
-
 }

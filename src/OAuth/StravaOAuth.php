@@ -10,7 +10,7 @@ use Psr\Log\LoggerInterface;
 final class StravaOAuth
 {
     private const AUTH_URL  = 'https://www.strava.com/oauth/authorize';
-    private const TOKEN_URL = 'https://www.strava.com/oauth/token'; // Strava docs navajajo ta endpoint :contentReference[oaicite:3]{index=3}
+    private const TOKEN_URL = 'https://www.strava.com/oauth/token';
 
     public function __construct(
         private Client $http,
@@ -26,7 +26,6 @@ final class StravaOAuth
             'redirect_uri'    => $this->env['STRAVA_REDIRECT_URI'],
             'response_type'   => 'code',
             'approval_prompt' => 'auto',
-            // Za branje aktivnosti priporočam activity:read_all (če želiš tudi private) :contentReference[oaicite:4]{index=4}
             'scope'           => 'read,activity:read_all',
             'state'           => $state,
         ]);
@@ -34,9 +33,13 @@ final class StravaOAuth
         return self::AUTH_URL . '?' . $params;
     }
 
+    /**
+     * Exchanges auth code for access+refresh token and stores them in SQLite.
+     *
+     * @return array<string, mixed> Minimal safe payload (no tokens)
+     */
     public function exchangeCodeForToken(string $code): array
     {
-        // grant_type=authorization_code :contentReference[oaicite:5]{index=5}
         $resp = $this->http->post(self::TOKEN_URL, [
             'form_params' => [
                 'client_id'     => $this->env['STRAVA_CLIENT_ID'],
@@ -47,24 +50,39 @@ final class StravaOAuth
             'timeout' => 20,
         ]);
 
-        /** @var array $json */
-        $json = json_decode((string)$resp->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        /** @var array<string, mixed> $json */
+        $json = json_decode((string) $resp->getBody(), true, 512, JSON_THROW_ON_ERROR);
+
+        // Defensive checks
+        if (
+            !isset($json['access_token'], $json['refresh_token'], $json['expires_at']) ||
+            !is_string($json['access_token']) ||
+            !is_string($json['refresh_token'])
+        ) {
+            throw new \RuntimeException('Strava token response missing expected fields.');
+        }
 
         $this->store->saveToken(
             'strava',
             $json['access_token'],
             $json['refresh_token'],
-            (int)$json['expires_at']
+            (int) $json['expires_at']
         );
 
         $this->logger->info('Strava token saved', [
-            'provider' => 'strava',
+            'provider'   => 'strava',
             'expires_at' => $json['expires_at'] ?? null,
-            'scope' => $json['scope'] ?? null,
+            'scope'      => $json['scope'] ?? null,
             'athlete_id' => $json['athlete']['id'] ?? null,
         ]);
 
-        return $json;
+        // Return only non-sensitive metadata (prevents accidental token leaks if caller logs return value)
+        return [
+            'provider'   => 'strava',
+            'expires_at' => $json['expires_at'] ?? null,
+            'scope'      => $json['scope'] ?? null,
+            'athlete_id' => $json['athlete']['id'] ?? null,
+        ];
     }
 
     public function getValidAccessToken(): string
@@ -74,24 +92,29 @@ final class StravaOAuth
             throw new \RuntimeException('No Strava token found. Visit /auth/strava first.');
         }
 
-        $expiresAt = (int)$row['expires_at'];
+        $expiresAt = (int) $row['expires_at'];
         $now = time();
 
-        // Refresh če poteče v naslednji 1 uri (Strava docs to omenjajo kot priporočilo) :contentReference[oaicite:6]{index=6}
+        // Refresh if expiring within the next hour
         if ($expiresAt - $now <= 3600) {
-            $this->refreshToken($row['refresh_token']);
+            $this->refreshToken((string) $row['refresh_token']);
+
             $row = $this->store->getToken('strava');
             if (!$row) {
                 throw new \RuntimeException('Token refresh failed and token row missing.');
             }
         }
 
-        return $row['access_token'];
+        return (string) $row['access_token'];
     }
 
+    /**
+     * Refreshes token and stores the updated token pair in SQLite.
+     *
+     * @return array<string, mixed> Minimal safe payload (no tokens)
+     */
     public function refreshToken(string $refreshToken): array
     {
-        // grant_type=refresh_token :contentReference[oaicite:7]{index=7}
         $resp = $this->http->post(self::TOKEN_URL, [
             'form_params' => [
                 'client_id'     => $this->env['STRAVA_CLIENT_ID'],
@@ -102,22 +125,34 @@ final class StravaOAuth
             'timeout' => 20,
         ]);
 
-        /** @var array $json */
-        $json = json_decode((string)$resp->getBody(), true, 512, JSON_THROW_ON_ERROR);
+        /** @var array<string, mixed> $json */
+        $json = json_decode((string) $resp->getBody(), true, 512, JSON_THROW_ON_ERROR);
 
-        // Strava lahko vrne NOV refresh_token; starega invalidira. Vedno shrani zadnjega. :contentReference[oaicite:8]{index=8}
+        if (
+            !isset($json['access_token'], $json['refresh_token'], $json['expires_at']) ||
+            !is_string($json['access_token']) ||
+            !is_string($json['refresh_token'])
+        ) {
+            throw new \RuntimeException('Strava refresh response missing expected fields.');
+        }
+
+        // Strava can rotate refresh_token; always persist the newest
         $this->store->saveToken(
             'strava',
             $json['access_token'],
             $json['refresh_token'],
-            (int)$json['expires_at']
+            (int) $json['expires_at']
         );
 
         $this->logger->info('Strava token refreshed', [
-            'provider' => 'strava',
+            'provider'   => 'strava',
             'expires_at' => $json['expires_at'] ?? null,
         ]);
 
-        return $json;
+        // Return only non-sensitive metadata
+        return [
+            'provider'   => 'strava',
+            'expires_at' => $json['expires_at'] ?? null,
+        ];
     }
 }

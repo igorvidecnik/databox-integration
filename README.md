@@ -80,7 +80,7 @@ Tokens are securely stored in SQLite (`oauth_tokens` table).
 Create a **Push Token** in Databox and set it in `.env`:
 
 ```
-DATABOX_PUSH_TOKEN=...
+DATABOX_TOKEN=...
 ```
 
 Dataset structure is documented in `docs/schema.md`.

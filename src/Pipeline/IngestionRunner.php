@@ -25,12 +25,17 @@ final class IngestionRunner
      */
     public function run(?string $from, ?string $to, array $sourcesMap): void
     {
-        $runAt = (new \DateTimeImmutable('now'))->format(\DateTimeInterface::ATOM);
+        $tz = new \DateTimeZone('Europe/Ljubljana');
+        $runAt = (new \DateTimeImmutable('now', $tz))->format(\DateTimeInterface::ATOM);
 
         foreach ($sourcesMap as $provider => $pair) {
             [$source, $datasetId] = $pair;
 
-            $this->logger->info('Ingestion start', ['provider' => $provider, 'from' => $from, 'to' => $to]);
+            $this->logger->info('Ingestion start', [
+                'provider' => $provider,
+                'from' => $from,
+                'to' => $to,
+            ]);
 
             // last_run_at always updated even on failure (so you can see attempts)
             $state = $this->store->getState($provider);
@@ -44,7 +49,6 @@ final class IngestionRunner
                 /** @var array<int, array{date:string, data:array<string,mixed>}> $records */
                 $records = $source->fetchDaily($from, $to);
 
-
                 // FLATTEN: {date, data:{...}} -> {date, ...}
                 $records = array_map(static function (array $r): array {
                     $date = $r['date'] ?? null;
@@ -54,7 +58,6 @@ final class IngestionRunner
                         return $r;
                     }
 
-                    // NE pošiljaj "data" stolpca
                     return array_merge(['date' => $date], $data);
                 }, $records);
 
@@ -67,11 +70,10 @@ final class IngestionRunner
                 $this->logger->info('Databox ingest OK', [
                     'provider' => $provider,
                     'dataset_id' => $datasetId,
-                    'response' => $resp,
                     'records' => count($records),
+                    'databox' => $this->summarizeDataboxResponse($resp),
                 ]);
 
-                // crude success date: max date from records
                 $lastDate = $this->maxRecordDate($records);
                 $this->store->upsertState($provider, $lastDate, $runAt);
 
@@ -83,6 +85,29 @@ final class IngestionRunner
                 throw $e;
             }
         }
+    }
+
+    /**
+     * @param array<string, mixed> $resp
+     * @return array<string, mixed>
+     */
+    private function summarizeDataboxResponse(array $resp): array
+    {
+        $summary = [
+            'batches' => $resp['batches'] ?? null,
+            'totalRecords' => $resp['totalRecords'] ?? null,
+        ];
+
+        // Try to extract first batch response fields (most useful)
+        $first = $resp['results'][0]['response'] ?? null;
+        if (is_array($first)) {
+            $summary['status'] = $first['status'] ?? null;
+            $summary['ingestionId'] = $first['ingestionId'] ?? null;
+            $summary['requestId'] = $first['requestId'] ?? null;
+            $summary['message'] = $first['message'] ?? null;
+        }
+
+        return $summary;
     }
 
     /**
@@ -114,11 +139,16 @@ final class IngestionRunner
 
         foreach ($records as &$r) {
             foreach ($casts as $k => $t) {
-                if (!array_key_exists($k, $r) || $r[$k] === null || $r[$k] === '') continue;
+                if (!array_key_exists($k, $r) || $r[$k] === null || $r[$k] === '') {
+                    continue;
+                }
 
-                // če slučajno pride kot string "12.3", ga normaliziraj
-                if ($t === 'int')   $r[$k] = (int)$r[$k];
-                if ($t === 'float') $r[$k] = (float)$r[$k];
+                if ($t === 'int') {
+                    $r[$k] = (int) $r[$k];
+                }
+                if ($t === 'float') {
+                    $r[$k] = (float) $r[$k];
+                }
             }
         }
         unset($r);
@@ -126,9 +156,8 @@ final class IngestionRunner
         return $records;
     }
 
-
     /**
-     * @param array<int, array{date:string, data:array<string,mixed>}> $records
+     * @param array<int, array<string,mixed>> $records
      */
     private function validateRecords(string $provider, array $records): void
     {
@@ -136,24 +165,27 @@ final class IngestionRunner
             $this->logger->warning("{$provider}: no records for this period");
             return;
         }
+
         foreach ($records as $i => $r) {
             if (!isset($r['date']) || !is_string($r['date'])) {
                 throw new \RuntimeException("{$provider}: invalid record at index {$i} (missing date).");
             }
-            if (!is_string($r['date']) || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $r['date'])) {
+            if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $r['date'])) {
                 throw new \RuntimeException("{$provider}: invalid date format at index {$i} (expected YYYY-MM-DD).");
             }
         }
     }
 
     /**
-     * @param array<int, array{date:string, data:array<string,mixed>}> $records
+     * @param array<int, array<string,mixed>> $records
      */
     private function maxRecordDate(array $records): string
     {
         $max = '0000-00-00';
         foreach ($records as $r) {
-            if ($r['date'] > $max) $max = $r['date'];
+            if (isset($r['date']) && is_string($r['date']) && $r['date'] > $max) {
+                $max = $r['date'];
+            }
         }
         return $max;
     }

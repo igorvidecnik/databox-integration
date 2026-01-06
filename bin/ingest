@@ -1,10 +1,21 @@
+#!/usr/bin/env php
 <?php
 declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+use App\Databox\DataboxClient;
+use App\Logging\LoggerFactory;
+use App\Pipeline\IngestionRunner;
+use App\Sources\OpenMeteoSource;
+use App\Sources\StravaSource;
+use App\Storage\SqliteStore;
+use Dotenv\Dotenv;
+use GuzzleHttp\Client;
+
 $root = dirname(__DIR__);
 
+// Ensure runtime dirs exist
 foreach (['data', 'logs'] as $dir) {
     $path = $root . DIRECTORY_SEPARATOR . $dir;
     if (!is_dir($path)) {
@@ -12,32 +23,60 @@ foreach (['data', 'logs'] as $dir) {
     }
 }
 
-use Dotenv\Dotenv;
-use App\Logging\LoggerFactory;
-use App\Storage\SqliteStore;
-use App\Pipeline\IngestionRunner;
-use App\Sources\StravaSource;
-use App\Sources\OpenMeteoSource;
-use App\Databox\DataboxClient;
-
-Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
+// Load env (non-fatal if missing)
+Dotenv::createImmutable($root)->safeLoad();
 
 $logger = LoggerFactory::create();
-
-$store = new SqliteStore(__DIR__ . '/../data/app.db');
-$store->init();
 
 $from = $argv[1] ?? null;
 $to   = $argv[2] ?? null;
 
-$http = new \GuzzleHttp\Client(['timeout' => 20]);
+/**
+ * Validate CLI date arguments: must be YYYY-MM-DD
+ */
+$validateDate = function (?string $d, string $label): ?string {
+    if ($d === null || trim($d) === '') {
+        return null;
+    }
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $d)) {
+        fwrite(STDERR, "Invalid {$label} date format: {$d} (expected YYYY-MM-DD)\n");
+        exit(1);
+    }
+
+    $dt = \DateTimeImmutable::createFromFormat('Y-m-d', $d);
+    if (!$dt || $dt->format('Y-m-d') !== $d) {
+        fwrite(STDERR, "Invalid {$label} date value: {$d}\n");
+        exit(1);
+    }
+
+    return $d;
+};
+
+$from = $validateDate($from, 'FROM');
+$to   = $validateDate($to, 'TO');
+
+
+// Optional debug flag (defaults to false)
+$verbose = filter_var($_ENV['LOG_VERBOSE'] ?? '0', FILTER_VALIDATE_BOOL);
+
+$logger->info('Ingestion starting', [
+    'from' => $from,
+    'to' => $to,
+    'verbose' => $verbose,
+]);
+
+$store = new SqliteStore($root . '/data/app.db');
+$store->init();
+
+$http = new Client(['timeout' => 20]);
 
 $strava  = new StravaSource($http, $store, $logger, $_ENV);
 $weather = new OpenMeteoSource($http, $logger, $_ENV);
 
 /**
  * DRY-RUN MODE
- * Databox ni nastavljen → samo preverimo source-e
+ * If Databox is not configured → run sources only (no push).
  */
 $hasDatabox =
     !empty($_ENV['DATABOX_TOKEN'] ?? '') &&
@@ -45,15 +84,30 @@ $hasDatabox =
     !empty($_ENV['DATABOX_DATASET_WEATHER'] ?? '');
 
 if (!$hasDatabox) {
-    $logger->warning('Databox not configured — running in DRY-RUN mode');
+    $logger->warning('Databox not configured — running in DRY-RUN mode', [
+        'from' => $from,
+        'to' => $to,
+    ]);
 
     $logger->info('Running Strava source');
     $stravaRecords = $strava->fetchDaily($from, $to);
-    $logger->info('Strava records', ['records' => $stravaRecords]);
+
+    $logger->info('Strava records summary', [
+        'count'  => is_countable($stravaRecords) ? count($stravaRecords) : null,
+        'from'   => $from,
+        'to'     => $to,
+        'sample' => $verbose ? array_slice($stravaRecords, 0, 3) : null,
+    ]);
 
     $logger->info('Running Weather source');
     $weatherRecords = $weather->fetchDaily($from, $to);
-    $logger->info('Weather records', ['records' => $weatherRecords]);
+
+    $logger->info('Weather records summary', [
+        'count'  => is_countable($weatherRecords) ? count($weatherRecords) : null,
+        'from'   => $from,
+        'to'     => $to,
+        'sample' => $verbose ? array_slice($weatherRecords, 0, 3) : null,
+    ]);
 
     $logger->info('DRY-RUN finished successfully');
     exit(0);
@@ -62,10 +116,15 @@ if (!$hasDatabox) {
 /**
  * NORMAL INGEST MODE (Databox ready)
  */
-$databox = new DataboxClient($http, $_ENV['DATABOX_TOKEN']);
+$databox = new DataboxClient($http, (string) $_ENV['DATABOX_TOKEN']);
 
 $runner = new IngestionRunner($logger, $store, $databox);
 $runner->run($from, $to, [
-    'strava'  => [$strava, $_ENV['DATABOX_DATASET_STRAVA']],
-    'weather' => [$weather, $_ENV['DATABOX_DATASET_WEATHER']],
+    'strava'  => [$strava, (string) $_ENV['DATABOX_DATASET_STRAVA']],
+    'weather' => [$weather, (string) $_ENV['DATABOX_DATASET_WEATHER']],
+]);
+
+$logger->info('Ingestion finished successfully', [
+    'from' => $from,
+    'to' => $to,
 ]);
