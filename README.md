@@ -8,13 +8,15 @@ This service:
 - pushes the data into **Databox Ingestion API**,
 - enables visualization via **Databox Metrics & Dashboards**.
 
-TL;DR – Quick Start
+---
 
-composer install
-cp .env.example .env
-# fill .env with required keys
-php -S localhost:8000 -t public   # only needed for Strava OAuth
-php bin/ingest 2025-12-01 2026-01-04
+## Quick Start
+
+- composer install
+- cp .env.example .env
+- fill .env with required keys
+- php -S localhost:8000 -t public   # only needed for Strava OAuth
+- php bin/ingest 2025-12-01 2026-01-04
 
 ---
 
@@ -91,6 +93,15 @@ Create a **Push Token** in Databox and set it in `.env`:
 ```
 DATABOX_TOKEN=...
 ```
+
+Before the first ingestion run, initialize the Databox dataset and metrics:
+
+```bash
+php bin/setup_databox.php
+```
+
+This script creates the required Databox dataset and metric definitions programmatically,
+so no manual setup in the Databox UI is required.
 
 Dataset structure is documented in `docs/schema.md`.
 
@@ -197,6 +208,33 @@ Tests are designed to validate critical behavior (not just coverage):
 > Notes:
 > - External APIs are not called during tests (HTTP is mocked).
 > - Sensitive data must never appear in logs; logging redaction is validated indirectly by structured logging behavior.
+
+---
+
+## Verification
+
+Successful ingestion produces:
+- JSON logs in logs/app.jsonl
+- New records inside the configured Databox dataset
+- Updated metrics visible on the Databox dashboard
+
+---
+
+## Submission Notes
+
+This repository is my solution to the Databox Engineering Challenge.
+
+Included:
+- Full ingestion pipeline implementation
+- Architecture & schema documentation (docs/)
+- Automated tests
+- Safe logging & idempotent ingestion
+
+Databox dashboard:
+https://app.databox.com/datawall/b872df8876cf538cf9d6b30bd23da9843e469a4695bdf3a?2040832=nzvizgqz
+
+Databox account email used for the dashboard:
+videcnik.igor@gmail.com
 
 ---
 
