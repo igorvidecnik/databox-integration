@@ -1,4 +1,5 @@
 <?php
+//samo za test sql lite
 $db = new PDO('sqlite:data/app.db');
 
 $stmt = $db->query("SELECT provider, access_token, refresh_token, expires_at FROM oauth_tokens");
