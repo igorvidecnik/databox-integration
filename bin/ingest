@@ -1,0 +1,62 @@
+<?php
+declare(strict_types=1);
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use Dotenv\Dotenv;
+use App\Logging\LoggerFactory;
+use App\Storage\SqliteStore;
+use App\Pipeline\IngestionRunner;
+use App\Sources\StravaSource;
+use App\Sources\OpenMeteoSource;
+use App\Databox\DataboxClient;
+
+Dotenv::createImmutable(__DIR__ . '/..')->safeLoad();
+
+$logger = LoggerFactory::create();
+
+$store = new SqliteStore(__DIR__ . '/../data/app.db');
+$store->init();
+
+$from = $argv[1] ?? null;
+$to   = $argv[2] ?? null;
+
+$http = new \GuzzleHttp\Client(['timeout' => 20]);
+
+$strava  = new StravaSource($http, $store, $logger, $_ENV);
+$weather = new OpenMeteoSource($http, $logger, $_ENV);
+
+/**
+ * 🧪 DRY-RUN MODE
+ * Databox ni nastavljen → samo preverimo source-e
+ */
+$hasDatabox =
+    !empty($_ENV['DATABOX_TOKEN'] ?? '') &&
+    !empty($_ENV['DATABOX_DATASET_STRAVA'] ?? '') &&
+    !empty($_ENV['DATABOX_DATASET_WEATHER'] ?? '');
+
+if (!$hasDatabox) {
+    $logger->warning('Databox not configured — running in DRY-RUN mode');
+
+    $logger->info('Running Strava source');
+    $stravaRecords = $strava->fetchDaily($from, $to);
+    $logger->info('Strava records', ['records' => $stravaRecords]);
+
+    $logger->info('Running Weather source');
+    $weatherRecords = $weather->fetchDaily($from, $to);
+    $logger->info('Weather records', ['records' => $weatherRecords]);
+
+    $logger->info('DRY-RUN finished successfully');
+    exit(0);
+}
+
+/**
+ * 🚀 NORMAL INGEST MODE (Databox ready)
+ */
+$databox = new DataboxClient($http, $_ENV['DATABOX_TOKEN']);
+
+$runner = new IngestionRunner($logger, $store, $databox);
+$runner->run($from, $to, [
+    'strava'  => [$strava, $_ENV['DATABOX_DATASET_STRAVA']],
+    'weather' => [$weather, $_ENV['DATABOX_DATASET_WEATHER']],
+]);
