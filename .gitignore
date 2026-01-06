@@ -3,3 +3,4 @@
 /data/
 /.env
 .phpunit.result.cache
+check_db.php
