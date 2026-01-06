@@ -8,6 +8,14 @@ This service:
 - pushes the data into **Databox Ingestion API**,
 - enables visualization via **Databox Metrics & Dashboards**.
 
+TL;DR – Quick Start
+
+composer install
+cp .env.example .env
+# fill .env with required keys
+php -S localhost:8000 -t public   # only needed for Strava OAuth
+php bin/ingest 2025-12-01 2026-01-04
+
 ---
 
 ## Tech Stack
