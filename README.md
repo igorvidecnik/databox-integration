@@ -171,7 +171,7 @@ vendor/bin/phpunit
 
 ### What is tested (testing strategy)
 
-Tests are designed to validate critical behavior:
+Tests are designed to validate critical behavior (not just coverage):
 
 - **Unit tests**
   - Date parsing / date-range normalization (`YYYY-MM-DD`)
