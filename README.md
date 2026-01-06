@@ -89,9 +89,19 @@ Dataset structure is documented in `docs/schema.md`.
 
 ## Running Ingestion
 
+Run ingestion without arguments (defaults to last 30 days):
+
 ```bash
 php bin/ingest
 ```
+
+Run ingestion for a specific date range:
+
+```bash
+php bin/ingest 2025-12-01 2026-01-04
+```
+Both dates must be in YYYY-MM-DD format.
+If an invalid format is provided, the process fails fast before calling any external APIs.
 
 ### Dry-Run Mode
 
