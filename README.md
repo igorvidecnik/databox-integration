@@ -12,11 +12,12 @@ This service:
 
 ## Tech Stack
 
-- PHP 8.3 (CLI)
-- SQLite (runtime state + OAuth tokens)
-- Guzzle (HTTP client)
-- Monolog (JSONL logs: `logs/app.jsonl`)
-- Dotenv (`.env`)
+- **PHP 8.3** (CLI)
+- **SQLite** — runtime state + OAuth token storage
+- **Guzzle** — HTTP client for external APIs
+- **Monolog** — structured JSONL logging (`logs/app.jsonl`)
+- **Dotenv** — environment configuration (`.env`)
+- **PHPUnit** — automated testing framework
 - Entry point: `php bin/ingest`
 
 ---
@@ -149,6 +150,45 @@ Security features:
 |-----|------------|
 | `docs/schema.md` | Dataset fields, types & units |
 | `docs/mapping.md` | Mapping to Databox metrics & dashboards |
+
+---
+
+# Testing
+
+This project uses **PHPUnit** for automated testing.
+
+### Run tests
+
+```bash
+composer test
+```
+
+Or directly:
+
+```bash
+vendor/bin/phpunit
+```
+
+### What is tested (testing strategy)
+
+Tests are designed to validate critical behavior:
+
+- **Unit tests**
+  - Date parsing / date-range normalization (`YYYY-MM-DD`)
+  - Aggregation logic (daily buckets, counters, sums)
+  - Record validation and type casting
+
+- **Integration-style tests**
+  - End-to-end pipeline execution in safe modes (e.g. dry-run behavior)
+  - Provider execution using mocked HTTP responses (no real external calls)
+
+- **Contract / schema checks**
+  - Ensures produced records match the documented dataset schema (`docs/schema.md`)
+  - Prevents accidental breaking changes when evolving datasets
+
+> Notes:
+> - External APIs are not called during tests (HTTP is mocked).
+> - Sensitive data must never appear in logs; logging redaction is validated indirectly by structured logging behavior.
 
 ---
 
