@@ -1,6 +1,26 @@
+# ─── Dependencies ──────────────────────────────────────────────
 /vendor/
-/logs/
-/data/
-/.env
+
+# ─── Runtime data ──────────────────────────────────────────────
+/data/*
+!/data/.gitkeep
+
+/logs/*
+!/logs/.gitkeep
+
+# ─── Environment / secrets ────────────────────────────────────
+.env
+.env.*
+
+# ─── Local tooling / caches ───────────────────────────────────
 .phpunit.result.cache
+
+# ─── Local dev utilities (never commit) ──────────────────────
 check_db.php
+
+# ─── OS / IDE junk ────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+

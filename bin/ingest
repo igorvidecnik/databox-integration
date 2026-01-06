@@ -3,6 +3,15 @@ declare(strict_types=1);
 
 require __DIR__ . '/../vendor/autoload.php';
 
+$root = dirname(__DIR__);
+
+foreach (['data', 'logs'] as $dir) {
+    $path = $root . DIRECTORY_SEPARATOR . $dir;
+    if (!is_dir($path)) {
+        mkdir($path, 0775, true);
+    }
+}
+
 use Dotenv\Dotenv;
 use App\Logging\LoggerFactory;
 use App\Storage\SqliteStore;
@@ -27,7 +36,7 @@ $strava  = new StravaSource($http, $store, $logger, $_ENV);
 $weather = new OpenMeteoSource($http, $logger, $_ENV);
 
 /**
- * 🧪 DRY-RUN MODE
+ * DRY-RUN MODE
  * Databox ni nastavljen → samo preverimo source-e
  */
 $hasDatabox =
@@ -51,7 +60,7 @@ if (!$hasDatabox) {
 }
 
 /**
- * 🚀 NORMAL INGEST MODE (Databox ready)
+ * NORMAL INGEST MODE (Databox ready)
  */
 $databox = new DataboxClient($http, $_ENV['DATABOX_TOKEN']);
 
