@@ -1,6 +1,6 @@
 <?php
 
-//die("uporabi samo za kreiranje datasetov");
+//kreiranje datasetov - vrača dataset ID-je
 
 require __DIR__ . '/../vendor/autoload.php';
 

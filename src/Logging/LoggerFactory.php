@@ -12,8 +12,6 @@ use Monolog\LogRecord;
 final class LoggerFactory
 {
     /**
-     * Keys are matched case-insensitively (we strtolower() the key).
-     *
      * @var array<string, true>
      */
     private const SENSITIVE_KEYS = [

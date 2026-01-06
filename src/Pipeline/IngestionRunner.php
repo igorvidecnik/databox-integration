@@ -37,7 +37,7 @@ final class IngestionRunner
                 'to' => $to,
             ]);
 
-            // last_run_at always updated even on failure (so you can see attempts)
+            // last_run_at always updated even on failure
             $state = $this->store->getState($provider);
             $this->store->upsertState($provider, $state['last_successful_date'] ?? null, $runAt);
 
@@ -49,7 +49,6 @@ final class IngestionRunner
                 /** @var array<int, array{date:string, data:array<string,mixed>}> $records */
                 $records = $source->fetchDaily($from, $to);
 
-                // FLATTEN: {date, data:{...}} -> {date, ...}
                 $records = array_map(static function (array $r): array {
                     $date = $r['date'] ?? null;
                     $data = $r['data'] ?? null;
@@ -98,7 +97,7 @@ final class IngestionRunner
             'totalRecords' => $resp['totalRecords'] ?? null,
         ];
 
-        // Try to extract first batch response fields (most useful)
+        // extract first batch response fields
         $first = $resp['results'][0]['response'] ?? null;
         if (is_array($first)) {
             $summary['status'] = $first['status'] ?? null;

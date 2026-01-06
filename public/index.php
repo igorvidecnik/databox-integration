@@ -52,7 +52,7 @@ if ($path === '/auth/strava/callback') {
 
     $stravaOAuth->exchangeCodeForToken($code);
 
-    echo "Strava connected ✅\n";
+    echo "Strava connected \n";
     echo "Next: run `php bin/ingest`\n";
     exit;
 }

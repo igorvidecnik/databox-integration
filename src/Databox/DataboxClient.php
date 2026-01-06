@@ -45,7 +45,6 @@ final class DataboxClient
         // Databox hard limit: 100 records per request
         $maxBatch = 100;
 
-        // Short-circuit
         if ($records === []) {
             return [
                 'batches' => 0,
@@ -148,7 +147,7 @@ final class DataboxClient
             );
         }
 
-        // Helpful fail-fast if Databox returns an error payload (sometimes even with 200)
+        // if Databox returns an error
         if (($data['status'] ?? null) === 'error') {
             throw new \RuntimeException('Databox API returned error: ' . ($data['message'] ?? 'unknown'));
         }

@@ -53,7 +53,6 @@ final class StravaOAuth
         /** @var array<string, mixed> $json */
         $json = json_decode((string) $resp->getBody(), true, 512, JSON_THROW_ON_ERROR);
 
-        // Defensive checks
         if (
             !isset($json['access_token'], $json['refresh_token'], $json['expires_at']) ||
             !is_string($json['access_token']) ||
@@ -76,7 +75,7 @@ final class StravaOAuth
             'athlete_id' => $json['athlete']['id'] ?? null,
         ]);
 
-        // Return only non-sensitive metadata (prevents accidental token leaks if caller logs return value)
+        // Return only non-sensitive metadata
         return [
             'provider'   => 'strava',
             'expires_at' => $json['expires_at'] ?? null,
@@ -136,7 +135,7 @@ final class StravaOAuth
             throw new \RuntimeException('Strava refresh response missing expected fields.');
         }
 
-        // Strava can rotate refresh_token; always persist the newest
+        // Strava can rotate refresh_token - always persist the newest
         $this->store->saveToken(
             'strava',
             $json['access_token'],

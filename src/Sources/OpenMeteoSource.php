@@ -31,17 +31,17 @@ public function fetchDaily(?string $from, ?string $to): array
     $lat = trim((string)($this->env['OPEN_METEO_LAT'] ?? ''));
     $lon = trim((string)($this->env['OPEN_METEO_LON'] ?? ''));
 
-    $tz = 'Europe/Zagreb';
+    $tz = 'Europe/Ljubljana';
     $localTz = new \DateTimeZone($tz);
 
-    // default: today only
+    // default: today
     $today = (new \DateTimeImmutable('now', $localTz))->format('Y-m-d');
     $fromDate = $from && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) ? $from : $today;
     $toDate   = $to   && preg_match('/^\d{4}-\d{2}-\d{2}$/', $to)   ? $to   : $today;
 
     if ($lat === '' || $lon === '') {
         $this->logger->warning('OpenMeteo skipped: missing OPEN_METEO_LAT/OPEN_METEO_LON');
-        // Return the full date range with nulls (Databox-friendly continuity)
+        // Return the full date range with nulls (Databox-friendly)
         return $this->emptyRangeRecords($fromDate, $toDate);
     }
 

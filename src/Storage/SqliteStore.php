@@ -28,7 +28,6 @@ final class SqliteStore
 
     public function init(): void
     {
-        // oauth_tokens: provider should be UNIQUE so we can UPSERT
         $this->pdo->exec("
             CREATE TABLE IF NOT EXISTS oauth_tokens (
                 provider TEXT PRIMARY KEY,
@@ -126,7 +125,7 @@ final class SqliteStore
         ]);
     }
 
-    // Optional: if you ever need raw access (debug)
+    // Optional: if we ever need raw access (debug)
     public function pdo(): PDO
     {
         return $this->pdo;

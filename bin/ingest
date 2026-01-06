@@ -23,7 +23,7 @@ foreach (['data', 'logs'] as $dir) {
     }
 }
 
-// Load env (non-fatal if missing)
+// Load env
 Dotenv::createImmutable($root)->safeLoad();
 
 $logger = LoggerFactory::create();

@@ -52,7 +52,7 @@ final class StravaSource
 
         $activities = $this->listActivities($accessToken, $afterEpoch, $beforeEpoch);
 
-        // Optional: safe verbose debug
+        // Optional: safe debug
         if ($verbose && isset($activities[0]) && is_array($activities[0])) {
             $a = $activities[0];
 
@@ -377,7 +377,7 @@ final class StravaSource
     {
         $weightKg = (float)($this->env['USER_WEIGHT_KG'] ?? 0);
         if ($weightKg <= 0) {
-            return 0.0; // without weight we don't guess
+            return 0.0; // without weight we don't guess :)
         }
 
         $type = (string)($a['type'] ?? '');
@@ -388,7 +388,7 @@ final class StravaSource
 
         $hours = $seconds / 3600.0;
 
-        // HR-based estimate (better), if we have average_heartrate
+        // HR-based estimate if we have average_heartrate
         $hasHr = (bool)($a['has_heartrate'] ?? false);
         $avgHr = $a['average_heartrate'] ?? null;
 
